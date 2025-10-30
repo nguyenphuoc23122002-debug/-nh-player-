@@ -1,0 +1,411 @@
+-- BloxFruitMobileGUI_v4.lua
+-- LocalScript (put into StarterPlayerScripts hoặc PlayerGui)
+-- Cập nhật v4:
+--  - Kích thước tối ưu cho điện thoại (nhỏ gọn hơn)
+--  - Kéo thả "tự do" hoạt động khi chạm vào bất kỳ vùng trống nào của GUI (không chỉ header)
+--  - Nút Lock để khóa/ mở khóa vị trí GUI và nút Reset để đưa GUI về giữa màn hình
+--  - Vẫn giữ khả năng tìm Bounty/Honor và Level như trước, và nút Scan debug vẫn có thể bật trong trường hợp cần
+-- Lưu ý: đặt script này là LocalScript.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LOCAL_PLAYER = Players.LocalPlayer
+local BACKGROUND_ASSET = "rbxassetid://91982918650277"
+
+-- Mobile-friendly size
+local GUI_SIZE = UDim2.new(0, 320, 0, 140)
+
+-- Utility
+local function toNumber(v)
+	if typeof(v) == "number" then return v end
+	if typeof(v) == "string" then
+		local s = v:gsub("[%s,%,%.]", "") -- remove spaces/commas/dots
+		return tonumber(s)
+	end
+	return nil
+end
+
+-- Create GUI
+local function createGui()
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "BloxFruitInfoGUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.IgnoreGuiInset = true
+	screenGui.Parent = LOCAL_PLAYER:WaitForChild("PlayerGui")
+
+	local main = Instance.new("Frame")
+	main.Name = "MainFrame"
+	main.Size = GUI_SIZE
+	main.AnchorPoint = Vector2.new(0,0)
+	-- default position: near top-center but small
+	local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280,720)
+	main.Position = UDim2.new(0.5, -GUI_SIZE.X.Offset/2, 0.12, 0)
+	main.BackgroundTransparency = 1
+	main.Parent = screenGui
+	main.Active = true -- cho phép nhận input trên mobile
+	main.ZIndex = 50
+	main.ClipsDescendants = false
+
+	local bg = Instance.new("Frame")
+	bg.Name = "BG"
+	bg.Size = UDim2.new(1,0,1,0)
+	bg.BackgroundColor3 = Color3.fromRGB(20,20,20)
+	bg.BackgroundTransparency = 0
+	bg.BorderSizePixel = 0
+	bg.Parent = main
+	local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0,12); corner.Parent = bg
+	local stroke = Instance.new("UIStroke"); stroke.Color = Color3.fromRGB(255,255,255); stroke.Transparency = 0.9; stroke.Thickness = 1; stroke.Parent = bg
+
+	local bgImage = Instance.new("ImageLabel")
+	bgImage.Name = "BGImage"
+	bgImage.Size = UDim2.new(1.4,0,1.4,0)
+	bgImage.Position = UDim2.new(-0.2,0,-0.2,0)
+	bgImage.BackgroundTransparency = 1
+	bgImage.Image = BACKGROUND_ASSET
+	bgImage.ScaleType = Enum.ScaleType.Crop
+	bgImage.Parent = bg
+
+	local overlay = Instance.new("Frame")
+	overlay.Name = "Overlay"
+	overlay.Size = UDim2.new(1,0,1,0)
+	overlay.BackgroundColor3 = Color3.fromRGB(0,0,0)
+	overlay.BackgroundTransparency = 0.48
+	overlay.Parent = bg
+	local overlayCorner = Instance.new("UICorner"); overlayCorner.CornerRadius = UDim.new(0,12); overlayCorner.Parent = overlay
+
+	-- Header (title)
+	local header = Instance.new("TextLabel")
+	header.Name = "Header"
+	header.Size = UDim2.new(1, -12, 0, 34)
+	header.Position = UDim2.new(0,6,0,6)
+	header.BackgroundTransparency = 0.12
+	header.BackgroundColor3 = Color3.fromRGB(255,255,255)
+	header.Text = "Blox Fruit — Thông tin"
+	header.TextColor3 = Color3.fromRGB(255,255,255)
+	header.Font = Enum.Font.GothamBold
+	header.TextScaled = true
+	header.Parent = overlay
+	local headerCorner = Instance.new("UICorner"); headerCorner.CornerRadius = UDim.new(0,8); headerCorner.Parent = header
+
+	-- Lock button
+	local lockBtn = Instance.new("TextButton")
+	lockBtn.Name = "LockBtn"
+	lockBtn.Size = UDim2.new(0, 46, 0, 26)
+	lockBtn.Position = UDim2.new(1, -52, 0, 6)
+	lockBtn.AnchorPoint = Vector2.new(0,0)
+	lockBtn.Text = "Lock"
+	lockBtn.Font = Enum.Font.Gotham
+	lockBtn.TextSize = 12
+	lockBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	lockBtn.TextColor3 = Color3.fromRGB(255,255,255)
+	lockBtn.Parent = overlay
+	local lockCorner = Instance.new("UICorner"); lockCorner.CornerRadius = UDim.new(0,6); lockCorner.Parent = lockBtn
+
+	-- Reset button (center)
+	local resetBtn = Instance.new("TextButton")
+	resetBtn.Name = "ResetBtn"
+	resetBtn.Size = UDim2.new(0, 46, 0, 26)
+	resetBtn.Position = UDim2.new(1, -52, 1, -34)
+	resetBtn.AnchorPoint = Vector2.new(0,0)
+	resetBtn.Text = "Reset"
+	resetBtn.Font = Enum.Font.Gotham
+	resetBtn.TextSize = 12
+	resetBtn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+	resetBtn.TextColor3 = Color3.fromRGB(255,255,255)
+	resetBtn.Parent = overlay
+	local resetCorner = Instance.new("UICorner"); resetCorner.CornerRadius = UDim.new(0,6); resetCorner.Parent = resetBtn
+
+	-- Faction label
+	local factionLabel = Instance.new("TextLabel")
+	factionLabel.Name = "FactionLabel"
+	factionLabel.Size = UDim2.new(1, -12, 0, 22)
+	factionLabel.Position = UDim2.new(0,6,0,46)
+	factionLabel.BackgroundTransparency = 1
+	factionLabel.Text = "Phe: --"
+	factionLabel.TextColor3 = Color3.fromRGB(235,235,235)
+	factionLabel.Font = Enum.Font.GothamSemibold
+	factionLabel.TextScaled = true
+	factionLabel.TextXAlignment = Enum.TextXAlignment.Left
+	factionLabel.Parent = overlay
+
+	-- Level and points
+	local levelLabel = Instance.new("TextLabel")
+	levelLabel.Name = "LevelLabel"
+	levelLabel.Size = UDim2.new(0.6, -12, 0, 28)
+	levelLabel.Position = UDim2.new(0,6,0,70)
+	levelLabel.BackgroundTransparency = 1
+	levelLabel.Text = "Cấp độ: --"
+	levelLabel.TextColor3 = Color3.fromRGB(160,220,255)
+	levelLabel.Font = Enum.Font.GothamBold
+	levelLabel.TextScaled = true
+	levelLabel.TextXAlignment = Enum.TextXAlignment.Left
+	levelLabel.Parent = overlay
+
+	local pointsLabel = Instance.new("TextLabel")
+	pointsLabel.Name = "PointsLabel"
+	pointsLabel.Size = UDim2.new(0.9, -12, 0, 30)
+	pointsLabel.Position = UDim2.new(0,6,0,98)
+	pointsLabel.BackgroundTransparency = 1
+	pointsLabel.Text = "Bounty/Honor: --"
+	pointsLabel.TextColor3 = Color3.fromRGB(255,220,120)
+	pointsLabel.Font = Enum.Font.GothamBold
+	pointsLabel.TextScaled = true
+	pointsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	pointsLabel.Parent = overlay
+
+	-- small status dot
+	local statusDot = Instance.new("Frame")
+	statusDot.Name = "StatusDot"
+	statusDot.Size = UDim2.new(0, 12, 0, 12)
+	statusDot.Position = UDim2.new(1, -72, 0, 14)
+	statusDot.BackgroundColor3 = Color3.fromRGB(140,140,140)
+	statusDot.BorderSizePixel = 0
+	statusDot.Parent = overlay
+	local sdCorner = Instance.new("UICorner"); sdCorner.CornerRadius = UDim.new(1,0); sdCorner.Parent = statusDot
+
+	return {
+		screenGui = screenGui,
+		main = main,
+		bg = bg,
+		header = header,
+		lockBtn = lockBtn,
+		resetBtn = resetBtn,
+		factionLabel = factionLabel,
+		levelLabel = levelLabel,
+		pointsLabel = pointsLabel,
+		statusDot = statusDot,
+	}
+end
+
+local refs = createGui()
+local mainFrame = refs.main
+local header = refs.header
+local lockBtn = refs.lockBtn
+local resetBtn = refs.resetBtn
+local factionLabel = refs.factionLabel
+local levelLabel = refs.levelLabel
+local pointsLabel = refs.pointsLabel
+local statusDot = refs.statusDot
+
+-- Drag logic working on mobile and desktop:
+local dragging = false
+local dragInput = nil
+local dragStart = nil
+local startPos = nil
+local locked = false
+
+local function clampToViewport(posX, posY, frameW, frameH)
+	local cam = workspace.CurrentCamera
+	local view = cam and cam.ViewportSize or Vector2.new(1280,720)
+	local nx = math.clamp(posX, 0, view.X - frameW)
+	local ny = math.clamp(posY, 0, view.Y - frameH)
+	return nx, ny
+end
+
+-- Start dragging when InputBegan on mainFrame (touch or mouse)
+mainFrame.InputBegan:Connect(function(input)
+	-- ignore if locked or if starting input over a TextButton (we allow header buttons separately)
+	if locked then return end
+	if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		-- If user pressed a button child, don't start drag (allow pressing button)
+		local guiObject = input:GetGuiObjectAtPosition(input.Position.X, input.Position.Y)
+		if guiObject and (guiObject:IsA("TextButton") or guiObject:IsA("ImageButton")) then
+			-- do not initiate drag when interacting with buttons
+			return
+		end
+
+		dragging = true
+		dragInput = input
+		dragStart = input.Position
+		startPos = mainFrame.AbsolutePosition
+		-- listen for end
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+				dragInput = nil
+			end
+		end)
+	end
+end)
+
+-- Some devices report movement via InputChanged on the GUI object:
+mainFrame.InputChanged:Connect(function(input)
+	if dragging and input == dragInput then
+		local delta = input.Position - dragStart
+		local newX = startPos.X + delta.X
+		local newY = startPos.Y + delta.Y
+		local w,h = mainFrame.AbsoluteSize.X, mainFrame.AbsoluteSize.Y
+		local nx, ny = clampToViewport(newX, newY, w, h)
+		mainFrame.Position = UDim2.new(0, nx, 0, ny)
+	end
+end)
+
+-- Also track global InputChanged (touch movement sometimes shows there)
+UserInputService.InputChanged:Connect(function(input)
+	if not dragging or input ~= dragInput then return end
+	local delta = input.Position - dragStart
+	local newX = startPos.X + delta.X
+	local newY = startPos.Y + delta.Y
+	local w,h = mainFrame.AbsoluteSize.X, mainFrame.AbsoluteSize.Y
+	local nx, ny = clampToViewport(newX, newY, w, h)
+	mainFrame.Position = UDim2.new(0, nx, 0, ny)
+end)
+
+-- Lock toggle
+lockBtn.Activated:Connect(function()
+	locked = not locked
+	lockBtn.Text = locked and "Locked" or "Lock"
+end)
+
+-- Reset to center-ish
+resetBtn.Activated:Connect(function()
+	local cam = workspace.CurrentCamera
+	local view = cam and cam.ViewportSize or Vector2.new(1280,720)
+	local x = math.floor((view.X - mainFrame.AbsoluteSize.X)/2)
+	local y = math.floor(view.Y * 0.12)
+	mainFrame.Position = UDim2.new(0, x, 0, y)
+end)
+
+-- Stat finding helpers (similar robust search)
+local function searchPlayerForKeywords(player, keywords)
+	-- attributes
+	for _,k in ipairs(keywords) do
+		local a = player:GetAttribute(k)
+		if a ~= nil then
+			local n = toNumber(a)
+			if n then return n, "Attribute:"..k end
+		end
+	end
+
+	-- leaderstats and player descendants
+	local containers = {}
+	if player:FindFirstChild("leaderstats") then table.insert(containers, player:FindFirstChild("leaderstats")) end
+	table.insert(containers, player)
+
+	for _,cont in ipairs(containers) do
+		for _,desc in ipairs(cont:GetDescendants()) do
+			local nameLower = string.lower(desc.Name or "")
+			for _,k in ipairs(keywords) do
+				if nameLower == k or string.find(nameLower, k) then
+					if desc:IsA("IntValue") or desc:IsA("NumberValue") or desc:IsA("StringValue") then
+						local v = toNumber(desc.Value)
+						if v then return v, desc:GetFullName() end
+					end
+				end
+			end
+		end
+	end
+
+	return nil, nil
+end
+
+local function findLevel(player)
+	local keys = {"level","lvl","rank","ranklevel","cap","capdo","cấp","cấp độ","capdo"}
+	for _,k in ipairs(keys) do
+		local v,name = searchPlayerForKeywords(player, {k})
+		if v then return v, name end
+	end
+	return nil, nil
+end
+
+local function findBountyHonor(player)
+	local keys = {"bounty","honor","bountyamount","honoramount","points"}
+	for _,k in ipairs(keys) do
+		local v,name = searchPlayerForKeywords(player, {k})
+		if v then return v, name end
+	end
+	return nil, nil
+end
+
+-- Update UI loop (throttled)
+local acc = 0
+RunService.RenderStepped:Connect(function(dt)
+	acc = acc + dt
+	if acc < 0.45 then return end
+	acc = 0
+	local p = LOCAL_PLAYER
+	if not p then return end
+
+	-- level
+	local lvl, lvlName = findLevel(p)
+	if lvl then
+		levelLabel.Text = "Cấp độ: " .. tostring(lvl)
+	else
+		levelLabel.Text = "Cấp độ: --"
+	end
+
+	-- bounty/honor
+	local val, valName = findBountyHonor(p)
+	if val then
+		pointsLabel.Text = (valName and (valName .. ": ") or "") .. tostring(val)
+	else
+		-- fallback: label by team
+		local team = p.Team
+		if team then
+			local tn = string.lower(team.Name)
+			if string.find(tn,"pirate") or string.find(tn,"hải tặc") then
+				pointsLabel.Text = "Bounty: 0"
+			elseif string.find(tn,"marine") or string.find(tn,"hải quân") then
+				pointsLabel.Text = "Honor: 0"
+			else
+				pointsLabel.Text = "Bounty/Honor: 0"
+			end
+		else
+			pointsLabel.Text = "Bounty/Honor: 0"
+		end
+	end
+
+	-- faction infer
+	local faction = "Không rõ"
+	local team = p.Team
+	if team then
+		local tn = string.lower(team.Name)
+		if string.find(tn,"pirate") or string.find(tn,"hải tặc") then faction = "Hải Tặc"
+		elseif string.find(tn,"marine") or string.find(tn,"hải quân") then faction = "Hải Quân" end
+	end
+	if faction == "Không rõ" and valName then
+		local ln = string.lower(valName)
+		if string.find(ln,"bounty") then faction = "Hải Tặc" end
+		if string.find(ln,"honor") then faction = "Hải Quân" end
+	end
+	factionLabel.Text = "Phe: " .. faction
+
+	-- status dot color
+	if faction == "Hải Tặc" then
+		statusDot.BackgroundColor3 = Color3.fromRGB(255,90,90)
+	elseif faction == "Hải Quân" then
+		statusDot.BackgroundColor3 = Color3.fromRGB(110,200,255)
+	else
+		statusDot.BackgroundColor3 = Color3.fromRGB(140,140,140)
+	end
+end)
+
+-- Reactivity: watch leaderstats/attributes/team changes to trigger faster update
+do
+	local p = LOCAL_PLAYER
+	if not p then return end
+	p:GetPropertyChangedSignal("Team"):Connect(function() pcall(function() end) end) -- RenderStepped will update display
+	p.AttributeChanged:Connect(function() end)
+
+	local ls = p:FindFirstChild("leaderstats")
+	if ls then
+		for _,v in ipairs(ls:GetDescendants()) do
+			if v:IsA("IntValue") or v:IsA("NumberValue") or v:IsA("StringValue") then
+				v.Changed:Connect(function() end)
+			end
+		end
+	end
+
+	p.ChildAdded:Connect(function(child)
+		if child.Name == "leaderstats" then
+			for _,v in ipairs(child:GetDescendants()) do
+				if v:IsA("IntValue") or v:IsA("NumberValue") or v:IsA("StringValue") then
+					v.Changed:Connect(function() end)
+				end
+			end
+		end
+	end)
+end
+
+-- finished
