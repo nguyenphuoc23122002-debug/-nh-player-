@@ -1,0 +1,626 @@
+-- Blox Fruits Auto Bounty Script for Delta Mobile
+-- Enhanced version with advanced features
+
+repeat task.wait() until game:IsLoaded() and game.Players.LocalPlayer
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Configuration
+getgenv().Team = "Pirates"
+getgenv().Mode = "Auto Bounty"
+
+getgenv().Config = {
+    ["Safe Health"] = {20, 50}, -- {health run %, health return %}
+    ["Custom Y Run"] = {
+        Enabled = true,
+        ["Y Run"] = 5000
+    },
+    ["Hunt Method"] = {
+        ["Use Move Predict"] = true,
+        ["Hit and Run"] = false,
+        ["Aimbot"] = true,
+        ["ESP Player"] = true,
+        ["Skip Player"] = {}, -- Thêm tên player muốn skip
+        ["Max Attack Time"] = 60,
+        ["Lock Bounty"] = {
+            ["Enabled"] = false,
+            ["Bounty"] = {0, 30000000}
+        }
+    },
+    ["Setting"] = {
+        ["White Screen"] = false,
+        ["Fast Delay"] = 0.3,
+        ["Tween Speed"] = 80,
+        ["Bypass TP"] = true,
+        ["FPS BOOSTER"] = true,
+        ["Teleport Distance"] = 50
+    },
+    ["Skip"] = {
+        ["Avoid V4"] = false,
+        ["Fruit"] = {
+            ["Enabled"] = true,
+            ["Avoid Fruit"] = {
+                "Portal-Portal",
+                "Kitsune-Kitsune",
+                "Leopard-Leopard"
+            }
+        }
+    },
+    ["Spam All Skill On V4"] = {
+        Enabled = true,
+        ["Weapons"] = {"Melee", "Sword", "Gun", "Blox Fruit"}
+    },
+    ["Items"] = {
+        ["Melee"] = {
+            Enable = true,
+            Delay = 0.4,
+            Skills = {
+                Z = {Enable = true, HoldTime = 0.3},
+                X = {Enable = true, HoldTime = 0.2},
+                C = {Enable = true, HoldTime = 0.5}
+            }
+        },
+        ["Sword"] = {
+            Enable = true,
+            Delay = 0.5,
+            Skills = {
+                Z = {Enable = true, HoldTime = 1},
+                X = {Enable = true, HoldTime = 0}
+            }
+        },
+        ["Gun"] = {
+            Enable = true,
+            Delay = 0.3,
+            Skills = {
+                Z = {Enable = true, HoldTime = 0.1},
+                X = {Enable = true, HoldTime = 0.1}
+            }
+        },
+        ["Blox Fruit"] = {
+            Enable = true,
+            Delay = 0.4,
+            Skills = {
+                Z = {Enable = true, HoldTime = 0.1},
+                X = {Enable = true, HoldTime = 0.1},
+                C = {Enable = true, HoldTime = 0.15},
+                V = {Enable = true, HoldTime = 0.2},
+                F = {Enable = true, HoldTime = 0.1}
+            }
+        }
+    }
+}
+
+-- Variables
+local CurrentTarget = nil
+local IsRetreating = false
+local LastSkillTime = {}
+local CurrentWeaponIndex = 1
+local AttackStartTime = 0
+local TargetESP = {}
+
+-- FPS Booster
+if Config.Setting["FPS BOOSTER"] then
+    local decalsyeeted = true
+    local g = game
+    local w = g.Workspace
+    local l = g.Lighting
+    local t = w.Terrain
+    
+    t.WaterWaveSize = 0
+    t.WaterWaveSpeed = 0
+    t.WaterReflectance = 0
+    t.WaterTransparency = 0
+    l.GlobalShadows = false
+    l.FogEnd = 9e9
+    l.Brightness = 0
+    settings().Rendering.QualityLevel = "Level01"
+    
+    for i, v in pairs(g:GetDescendants()) do
+        if v:IsA("Part") or v:IsA("Union") or v:IsA("CornerWedgePart") or v:IsA("TrussPart") then
+            v.Material = "Plastic"
+            v.Reflectance = 0
+        elseif v:IsA("Decal") or v:IsA("Texture") and decalsyeeted then
+            v.Transparency = 1
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Lifetime = NumberRange.new(0)
+        elseif v:IsA("Explosion") then
+            v.BlastPressure = 1
+            v.BlastRadius = 1
+        elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") or v:IsA("Sparkles") then
+            v.Enabled = false
+        elseif v:IsA("MeshPart") then
+            v.Material = "Plastic"
+            v.Reflectance = 0
+            v.TextureID = ""
+        end
+    end
+    
+    for i, e in pairs(l:GetChildren()) do
+        if e:IsA("BlurEffect") or e:IsA("SunRaysEffect") or e:IsA("ColorCorrectionEffect") or e:IsA("BloomEffect") or e:IsA("DepthOfFieldEffect") then
+            e.Enabled = false
+        end
+    end
+end
+
+-- White Screen
+if Config.Setting["White Screen"] then
+    game:GetService("RunService"):Set3dRenderingEnabled(false)
+end
+
+-- Utility Functions
+local function GetPlayerBounty(player)
+    local leaderstats = player:FindFirstChild("leaderstats")
+    if leaderstats then
+        local bounty = leaderstats:FindFirstChild("Bounty")
+        if bounty then
+            return bounty.Value
+        end
+    end
+    return 0
+end
+
+local function IsInSkipList(playerName)
+    for _, name in pairs(Config["Hunt Method"]["Skip Player"]) do
+        if playerName == name then
+            return true
+        end
+    end
+    return false
+end
+
+local function GetPlayerFruit(player)
+    if player.Character then
+        for _, tool in pairs(player.Character:GetChildren()) do
+            if tool:IsA("Tool") and tool.ToolTip:find("Blox Fruit") then
+                return tool.Name
+            end
+        end
+        for _, tool in pairs(player.Backpack:GetChildren()) do
+            if tool:IsA("Tool") and tool.ToolTip:find("Blox Fruit") then
+                return tool.Name
+            end
+        end
+    end
+    return nil
+end
+
+local function ShouldAvoidFruit(fruitName)
+    if not Config.Skip.Fruit.Enabled then return false end
+    
+    for _, avoidFruit in pairs(Config.Skip.Fruit["Avoid Fruit"]) do
+        if fruitName and fruitName:find(avoidFruit:gsub("-", "")) then
+            return true
+        end
+    end
+    return false
+end
+
+local function HasV4(player)
+    if not Config.Skip["Avoid V4"] then return false end
+    
+    if player.Character then
+        for _, v in pairs(player.Character:GetDescendants()) do
+            if v.Name:find("V4") or v.Name:find("Gear") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function IsInSafeZone(character)
+    if not character then return true end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return true end
+    
+    for _, v in pairs(workspace:GetDescendants()) do
+        if v.Name == "SafeZone" or v.Name == "SpawnLocation" then
+            if (hrp.Position - v.Position).Magnitude < 150 then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function HasSpawnProtection(player)
+    if not player.Character then return true end
+    
+    for _, effect in pairs(player.Character:GetDescendants()) do
+        if effect.Name:lower():find("spawn") or effect.Name:lower():find("protection") or effect.Name:lower():find("immune") then
+            return true
+        end
+    end
+    
+    return false
+end
+
+-- ESP System
+local function CreateESP(player)
+    if not Config["Hunt Method"]["ESP Player"] then return end
+    
+    local character = player.Character
+    if not character then return end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    -- Remove old ESP
+    if TargetESP[player.Name] then
+        TargetESP[player.Name]:Destroy()
+    end
+    
+    -- Create new ESP
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "TargetESP"
+    billboard.Parent = hrp
+    billboard.AlwaysOnTop = true
+    billboard.Size = UDim2.new(0, 200, 0, 100)
+    billboard.StudsOffset = Vector3.new(0, 4, 0)
+    
+    local frame = Instance.new("Frame")
+    frame.Parent = billboard
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 0.6
+    frame.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    frame.BorderSizePixel = 3
+    frame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Parent = frame
+    nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = "🎯 " .. player.Name
+    nameLabel.TextColor3 = Color3.new(1, 1, 1)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 18
+    
+    local bountyLabel = Instance.new("TextLabel")
+    bountyLabel.Parent = frame
+    bountyLabel.Position = UDim2.new(0, 0, 0.4, 0)
+    bountyLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    bountyLabel.BackgroundTransparency = 1
+    bountyLabel.Text = "💰 " .. tostring(GetPlayerBounty(player))
+    bountyLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    bountyLabel.TextStrokeTransparency = 0
+    bountyLabel.Font = Enum.Font.Gotham
+    bountyLabel.TextSize = 16
+    
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Parent = frame
+    healthLabel.Position = UDim2.new(0, 0, 0.7, 0)
+    healthLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    healthLabel.TextStrokeTransparency = 0
+    healthLabel.Font = Enum.Font.Gotham
+    healthLabel.TextSize = 14
+    
+    TargetESP[player.Name] = billboard
+    
+    -- Update health continuously
+    spawn(function()
+        while billboard and billboard.Parent do
+            local humanoid = character:FindFirstChild("Humanoid")
+            if humanoid then
+                local healthPercent = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+                healthLabel.Text = "❤️ " .. healthPercent .. "%"
+            end
+            task.wait(0.5)
+        end
+    end)
+end
+
+local function RemoveESP(playerName)
+    if TargetESP[playerName] then
+        TargetESP[playerName]:Destroy()
+        TargetESP[playerName] = nil
+    end
+end
+
+-- Movement System
+local function TweenToPosition(targetPos)
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = LocalPlayer.Character.HumanoidRootPart
+    local distance = (targetPos - hrp.Position).Magnitude
+    
+    -- Teleport if close enough
+    if distance <= Config.Setting["Teleport Distance"] then
+        hrp.CFrame = CFrame.new(targetPos)
+        return
+    end
+    
+    -- Bypass TP for long distances
+    if Config.Setting["Bypass TP"] and distance > 1500 then
+        local checkpointDistance = 500
+        local direction = (targetPos - hrp.Position).Unit
+        local checkpoint = hrp.Position + (direction * checkpointDistance)
+        hrp.CFrame = CFrame.new(checkpoint)
+        task.wait(0.1)
+    end
+    
+    -- Fly with NoClip
+    local bodyVelocity = hrp:FindFirstChild("FlyVelocity")
+    if not bodyVelocity then
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Name = "FlyVelocity"
+        bodyVelocity.Parent = hrp
+        bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    end
+    
+    local direction = (targetPos - hrp.Position).Unit
+    bodyVelocity.Velocity = direction * Config.Setting["Tween Speed"]
+    
+    -- NoClip
+    for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+end
+
+local function StopTween()
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local bodyVelocity = LocalPlayer.Character.HumanoidRootPart:FindFirstChild("FlyVelocity")
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+        end
+    end
+end
+
+-- Combat System
+local function EquipWeapon(weaponName)
+    if not LocalPlayer.Character then return end
+    
+    local tool = LocalPlayer.Backpack:FindFirstChild(weaponName)
+    if tool then
+        LocalPlayer.Character.Humanoid:EquipTool(tool)
+        task.wait(0.2)
+        return true
+    end
+    return false
+end
+
+local function UseSkill(key, holdTime)
+    key = key:lower()
+    VirtualInputManager:SendKeyEvent(true, key, false, game)
+    
+    if holdTime and holdTime > 0 then
+        task.wait(holdTime)
+    else
+        task.wait(0.05)
+    end
+    
+    VirtualInputManager:SendKeyEvent(false, key, false, game)
+end
+
+local function AttackWithWeapon(weaponType)
+    local weaponConfig = Config.Items[weaponType]
+    if not weaponConfig or not weaponConfig.Enable then return end
+    
+    local currentTime = tick()
+    if LastSkillTime[weaponType] and (currentTime - LastSkillTime[weaponType]) < weaponConfig.Delay then
+        return
+    end
+    
+    for skillKey, skillData in pairs(weaponConfig.Skills) do
+        if skillData.Enable then
+            UseSkill(skillKey, skillData.HoldTime)
+            task.wait(Config.Setting["Fast Delay"])
+        end
+    end
+    
+    LastSkillTime[weaponType] = tick()
+end
+
+local function AimAtTarget(target)
+    if not Config["Hunt Method"]["Aimbot"] then return end
+    if not target or not target.Character then return end
+    
+    local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    if targetHRP then
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetHRP.Position)
+    end
+end
+
+local function PredictMovement(target)
+    if not Config["Hunt Method"]["Use Move Predict"] then
+        return target.Character.HumanoidRootPart.Position
+    end
+    
+    local targetHRP = target.Character.HumanoidRootPart
+    local targetVelocity = targetHRP.Velocity
+    local distance = (targetHRP.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+    local travelTime = distance / Config.Setting["Tween Speed"]
+    
+    return targetHRP.Position + (targetVelocity * travelTime)
+end
+
+local function CircleStrafe(target)
+    if not target or not target.Character then return end
+    
+    local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then return end
+    
+    local myHRP = LocalPlayer.Character.HumanoidRootPart
+    local angle = tick() % (math.pi * 2)
+    local radius = 12
+    
+    local circlePos = targetHRP.Position + Vector3.new(
+        math.cos(angle) * radius,
+        5,
+        math.sin(angle) * radius
+    )
+    
+    TweenToPosition(circlePos)
+end
+
+local function CombatLoop()
+    if not CurrentTarget or not CurrentTarget.Character then return end
+    
+    local targetHRP = CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then return end
+    
+    AimAtTarget(CurrentTarget)
+    
+    -- Rotate through weapons
+    local weapons = {"Melee", "Sword", "Gun", "Blox Fruit"}
+    local weapon = weapons[CurrentWeaponIndex]
+    
+    AttackWithWeapon(weapon)
+    
+    CurrentWeaponIndex = CurrentWeaponIndex + 1
+    if CurrentWeaponIndex > #weapons then
+        CurrentWeaponIndex = 1
+    end
+    
+    -- Circle strafe to avoid attacks
+    if Config["Hunt Method"]["Hit and Run"] then
+        CircleStrafe(CurrentTarget)
+    else
+        local predictedPos = PredictMovement(CurrentTarget)
+        TweenToPosition(predictedPos)
+    end
+end
+
+-- Target Selection
+local function FindTarget()
+    local validTargets = {}
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Team ~= LocalPlayer.Team then
+            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                local humanoid = player.Character.Humanoid
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                
+                if humanoid.Health > 0 and hrp then
+                    -- Skip conditions
+                    if IsInSkipList(player.Name) then continue end
+                    if IsInSafeZone(player.Character) then continue end
+                    if HasSpawnProtection(player) then continue end
+                    if HasV4(player) then continue end
+                    
+                    local fruit = GetPlayerFruit(player)
+                    if ShouldAvoidFruit(fruit) then continue end
+                    
+                    -- Bounty lock
+                    local bounty = GetPlayerBounty(player)
+                    if Config["Hunt Method"]["Lock Bounty"]["Enabled"] then
+                        local minBounty = Config["Hunt Method"]["Lock Bounty"]["Bounty"][1]
+                        local maxBounty = Config["Hunt Method"]["Lock Bounty"]["Bounty"][2]
+                        if bounty < minBounty or bounty > maxBounty then continue end
+                    end
+                    
+                    local distance = (hrp.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                    
+                    table.insert(validTargets, {
+                        Player = player,
+                        Distance = distance,
+                        Bounty = bounty
+                    })
+                end
+            end
+        end
+    end
+    
+    -- Sort by bounty first, then distance
+    table.sort(validTargets, function(a, b)
+        if math.abs(a.Bounty - b.Bounty) > 100000 then
+            return a.Bounty > b.Bounty
+        end
+        return a.Distance < b.Distance
+    end)
+    
+    return validTargets[1] and validTargets[1].Player or nil
+end
+
+-- Health Management
+local function CheckHealth()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") then return end
+    
+    local humanoid = LocalPlayer.Character.Humanoid
+    local healthPercent = (humanoid.Health / humanoid.MaxHealth) * 100
+    
+    -- Run away if health too low
+    if healthPercent <= Config["Safe Health"][1] and not IsRetreating then
+        IsRetreating = true
+        CurrentTarget = nil
+        print("[Auto Bounty] 🏃 Rút lui! Máu còn: " .. math.floor(healthPercent) .. "%")
+        
+        -- Fly up high
+        if Config["Custom Y Run"].Enabled then
+            local myHRP = LocalPlayer.Character.HumanoidRootPart
+            local escapePos = myHRP.Position + Vector3.new(0, Config["Custom Y Run"]["Y Run"], 0)
+            TweenToPosition(escapePos)
+        end
+        
+        return true
+    end
+    
+    -- Return to combat when health recovered
+    if IsRetreating and healthPercent >= Config["Safe Health"][2] then
+        IsRetreating = false
+        print("[Auto Bounty] ⚔️ Hồi máu xong! Quay lại chiến đấu!")
+        return false
+    end
+    
+    return IsRetreating
+end
+
+-- Server Hop
+local function ServerHop()
+    print("[Auto Bounty] 🌐 Đang tìm server mới...")
+    
+    local success, result = pcall(function()
+        local servers = {}
+        local req = request({
+            Url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100", game.PlaceId)
+        })
+        
+        local body = HttpService:JSONDecode(req.Body)
+        
+        if body and body.data then
+            for _, server in pairs(body.data) do
+                if server.id ~= game.JobId and server.playing < server.maxPlayers - 2 then
+                    table.insert(servers, server.id)
+                end
+            end
+        end
+        
+        if #servers > 0 then
+            local randomServer = servers[math.random(1, #servers)]
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer, LocalPlayer)
+        else
+            print("[Auto Bounty] ❌ Không tìm thấy server phù hợp!")
+        end
+    end)
+    
+    if not success then
+        print("[Auto Bounty] ⚠️ Lỗi khi hop server:", result)
+    end
+end
+
+-- Main Loop
+print("=================================")
+print("🎮 BLOX FRUITS AUTO BOUNTY")
+print("=================================")
+print("⚙️ Mode:", getgenv().Mode)
+print("🏴‍☠️ Team:", getgenv().Team)
+print("✅ Script đã khởi động!")
+print("=================================")
+
+RunService.Heartbeat:Connect(function()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") then return end
+    
+    -- Check health status
+    if CheckHealth() then ret
